@@ -1,0 +1,1 @@
+Use [FastAPI](https://fastapi.tiangolo.com/) to make REST Api calls for care sharing.
