@@ -1,76 +1,120 @@
-from schemas import CarOutput, load_cars, CarInput, save_db, TripInput, TripOutput
-from fastapi import FastAPI, HTTPException
+from typing import Annotated
 import uvicorn
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy import create_engine
+from sqlmodel import SQLModel, Session, select
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Car Sharing")
+from schemas import Car, CarInput, CarOutput, Trip, TripInput, TripOutput
 
-db = load_cars("cars")
+engine = create_engine(
+    "sqlite:///carsharing.db",
+    connect_args={"check_same_thread": False},
+    echo=True
+)
+
+async def lifespan(app: FastAPI):
+    SQLModel.metadata.create_all(engine)
+    yield
+
+def get_session():
+    """
+    This could be a single line function -
+    ```
+    def get_session():
+        return Session(engine)
+    ```
+    However, I prefer returning the session wrapped inside the with block,
+    because it would provide protection against data corruption by faicilitating rollback
+    in case of exceptions.
+
+    """
+    with Session(engine) as session:
+        yield session
+
+app = FastAPI(title="Car Sharing", lifespan=lifespan)
+
 @app.get("/")
 async def welcome(name):
     """Return a simple welcome message"""
     return {"message": f"Welcome {name}, to the Car Sharing Service"}
 
 @app.get("/api/cars")
-def get_cars(size: str|None = None, doors: int|None = None) -> list:
-    res = db
+def get_cars(session: Annotated[Session, Depends(get_session)],
+             size: str|None = None, doors: int|None = None) -> list[Car]:
+    query = select(Car)
     if size:
-        res = [car for car in res if car["size"] == size]
+        query = query.where(Car.size == size) 
     if doors:
-        res = [car for car in res if car["doors"] >= doors]
-    return res
+        query = query.where(Car.doors >= doors)
+    return session.exec(query).all()
 
 @app.get("/api/cars/{id}")
-def car_by_id(id: int) -> dict:
-    res = [car for car in db if car.id == id]
-    if res:
-        return res[0].model_dump()
+def car_by_id(session: Annotated[Session, Depends(get_session)],
+              id: int) -> Car:
+    car = session.get(Car, id)
+    if car:
+        return car
     else:
         raise HTTPException(status_code=404, detail=f"No car found with id = {id}")
 
-@app.post("/api/cars")
-def post_car(car: CarInput) -> CarOutput:
-    car = CarOutput(id = len(db)+1, size=car.size, doors=car.doors,
-                    fuel=car.fuel, transmission=car.transmission)
-    db.append(car)
-    save_db("cars", db)
+@app.get("/api/car/{id}/trips")
+def get_car_trips(session: Annotated[Session, Depends(get_session)],
+              id: int) -> CarOutput:
+    car = session.get(Car, id)
+    if car:
+        return car
+    else:
+        raise HTTPException(status_code=404, detail=f"No car found with id = {id}")
+
+@app.post("/aip/cars")
+def add_car(session: Annotated[Session, Depends(get_session)],
+            car_input: CarInput) -> Car:
+    """
+    use car = Car.from_orm(car_input) to create lazy relations correctly.
+    """
+    car = Car.model_validate(car_input)
+    session.add(car)
+    session.commit()
+    session.refresh(car)
     return car
 
-@app.delete("/api/cars/id", status_code=204)
-def remove_car(id: int) -> None:
-    matches = [car for car in db if car.id == id ]
-    if matches:
-        car = matches[0]
-        db.remove(car)
-        save_db(db)
+@app.delete("/api/cars/{id}", status_code=204) 
+def remove_car(session: Annotated[Session, Depends(get_session)], id: int) -> None:
+    """
+    Remove a car provided with `id` in URL and return session code 204 for No content.
+    """
+    car = session.get(Car, id)
+    if car:
+        session.delete(car)
+        session.commit()
     else:
         raise HTTPException(status_code=404, detail=f"No car found with id = {id}")
 
 @app.put("/api/cars/{id}")
-def change_car(id: int, new_data: CarInput) -> CarOutput:
-    matches = [car for car in db if car.id == id]
-    if matches:
-        car = matches[0]
+def change_car(session: Annotated[Session, Depends(get_session)],
+               id: int, new_data: CarInput) -> Car:
+    car = session.get(Car, id)
+    if car:
         car.fuel = new_data.fuel
         car.size = new_data.size
         car.doors = new_data.doors
         car.transmission = new_data.transmission
-        save_db(db)
+        session.commit()
         return car
     else:
         raise HTTPException(status_code=404, detail=f"Car with id={id} not found")
 
 @app.post("/api/cars/{car_id}/trips")
-def post_trip(car_id: int, trip: TripInput) -> TripOutput:
-    car_match = [car for car in db if car.id == car_id]
-    if car_match:
-        car = car_match[0]
-        trips = car.trips
-        trip = TripOutput(id=len(trips)+1, 
-                          start=trip.start, end=trip.end, 
-                          description=trip.description)
-        trips.append(trip)
-        save_db("cars", db)
-        return trip
+def add_trip(car_id: int, trip: TripInput,
+             session: Session = Depends(get_session)) -> Trip:
+    car = session.get(Car, car_id)
+    if car:
+        new_trip = Trip.model_validate(trip, update={"car_id": car_id})
+        car.trips.append(new_trip)
+        session.commit()
+        session.refresh(new_trip)
+        return new_trip
     else:
         raise HTTPException(status_code=404, detail=f"Car with id {car_id} not found")
 
