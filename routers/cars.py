@@ -3,8 +3,9 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, APIRouter
 from sqlmodel import Session, select
 
+from routers.auth import get_current_user
 from db import get_session
-from schemas import Car, CarInput, CarOutput
+from schemas import Car, CarInput, CarOutput, User
 
 router = APIRouter(prefix="/api/cars")
 
@@ -41,6 +42,7 @@ def get_car_trips(session: Annotated[Session, Depends(get_session)],
 
 @router.post("/")
 def add_car(session: Annotated[Session, Depends(get_session)],
+            user: Annotated[User, Depends(get_current_user)],
             car_input: CarInput) -> Car:
     """
     use car = Car.from_orm(car_input) to create lazy relations correctly.

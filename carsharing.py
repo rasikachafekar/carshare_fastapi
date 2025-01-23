@@ -5,7 +5,7 @@ from sqlmodel import SQLModel
 from db import engine
 from routers import cars, web, trips
 from starlette.responses import JSONResponse
-from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
+from starlette import status
 
 async def lifespan(app: FastAPI):
     SQLModel.metadata.create_all(engine)
@@ -19,7 +19,7 @@ app.include_router(web.router)
 @app.exception_handler(trips.BadTripException)
 async def unicorn_exception_handler(request: Request, exc: trips.BadTripException):
     return JSONResponse(
-        status_code=HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"message": "Bad Trip"}
     )
 
