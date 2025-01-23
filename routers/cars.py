@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, APIRouter
 from sqlmodel import Session, select
 
 from db import get_session
-from schemas import Car, CarInput, CarOutput, Trip, TripInput
+from schemas import Car, CarInput, CarOutput
 
 router = APIRouter(prefix="/api/cars")
 
@@ -78,17 +78,3 @@ def change_car(session: Annotated[Session, Depends(get_session)],
         return car
     else:
         raise HTTPException(status_code=404, detail=f"Car with id={id} not found")
-
-
-@router.post("/{car_id}/trips")
-def add_trip(car_id: int, trip: TripInput,
-             session: Session = Depends(get_session)) -> Trip:
-    car = session.get(Car, car_id)
-    if car:
-        new_trip = Trip.model_validate(trip, update={"car_id": car_id})
-        car.trips.append(new_trip)
-        session.commit()
-        session.refresh(new_trip)
-        return new_trip
-    else:
-        raise HTTPException(status_code=404, detail=f"Car with id {car_id} not found")
