@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from sqlmodel import SQLModel
 
 from db import engine
-from routers import cars, web, trips
+from routers import cars, web, trips, auth
 from starlette.responses import JSONResponse
 from starlette import status
 
@@ -15,6 +15,7 @@ app = FastAPI(title="Car Sharing", lifespan=lifespan)
 app.include_router(cars.router)
 app.include_router(trips.router)
 app.include_router(web.router)
+app.include_router(auth.router)
 
 @app.exception_handler(trips.BadTripException)
 async def unicorn_exception_handler(request: Request, exc: trips.BadTripException):
